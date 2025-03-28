@@ -1,6 +1,6 @@
 absl-py==2.1.0
 annotated-types==0.7.0
-arm-mango==1.5.1      
+arm-mango==1.5.1
 astunparse==1.6.3
 attrs==23.2.0
 autograd==1.6.2
@@ -94,7 +94,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 pytups==0.88.1
 pytz==2023.4
-pywin32==308
 PyYAML==6.0.2
 regex==2024.11.6
 requests==2.31.0

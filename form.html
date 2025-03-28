@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>需求收集表</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        input[readonly] { background-color: #f8f9fa; cursor: not-allowed; }
+        .error { color: red; font-size: 0.9em; }
+        button { margin: 10px 0; padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <h1>需求收集表</h1>
+    <button id="newBtn" onclick="resetForm()">新增记录</button>
+
+    <!-- 输入表单 -->
+    <form id="dataForm">
+        <table>
+            <tr>
+                <th>填写日期</th>
+                <td><input type="date" id="submit_date" name="submit_date" readonly></td>
+            </tr>
+            <tr>
+                <th>区域 <span class="error">*</span></th>
+                <td><input type="text" id="region" name="region" required></td>
+            </tr>
+            <tr>
+                <th>款号 <span class="error">*</span></th>
+                <td><input type="text" id="style_code" name="style_code" required></td>
+            </tr>
+            <tr>
+                <th>预估销售周期 <span class="error">*</span></th>
+                <td><input type="text" id="estimated_cycle" name="estimated_cycle" required></td>
+            </tr>
+            <tr>
+                <th>30天需求数量 <span class="error">*</span></th>
+                <td><input type="number" id="demand_qty" name="demand_qty" min="1" required></td>
+            </tr>
+        </table>
+        <button type="submit">保存</button>
+        <div id="errorMsg" class="error"></div>
+    </form>
+
+    <!-- 自动填充的隐藏字段 -->
+    <div style="display:none;">
+        <input type="text" id="listed_date">
+        <input type="text" id="order_data">
+        <input type="text" id="sales_data">
+        <input type="text" id="inventory_data">
+        <input type="text" id="stocked_orders">
+        <input type="text" id="later_sales">
+        <input type="text" id="avg_sales">
+        <input type="text" id="out_quantity">
+    </div>
+
+    <!-- 历史记录及导出按钮 -->
+    <h2>历史记录（每小时自动更新）</h2>
+    <button onclick="exportToExcel()">导出为Excel</button>
+    <div id="recordsTable">
+        <table>
+            <thead>
+                <tr>
+                    <th>填写日期</th>
+                    <th>区域</th>
+                    <th>款号</th>
+                    <th>预估周期</th>
+                    <th>30天需求</th>
+                    <th>上市日期</th>
+                    <th>原始订单</th>
+                    <th>累计销售</th>
+                    <th>昨日库存</th>
+                    <th>店均销量</th>
+                    <th>销售阶段</th>
+                    <th>需求满足</th>
+                    <th>调出数量</th>
+                    <th>后续销售</th>
+                    <th>信用分</th>
+                </tr>
+            </thead>
+            <tbody id="recordsBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // 初始化：自动填充当天日期
+        $('#submit_date').val(new Date().toISOString().split('T')[0]);
+
+        // 实时查询数据库数据（填充隐藏字段）
+        $('#region, #style_code').on('blur', function() {
+            const region = $('#region').val().trim();
+            const style_code = $('#style_code').val().trim();
+            
+            if (region && style_code) {
+                $.ajax({
+                    url: '/search',
+                    method: 'POST',
+                    data: { region, style_code },
+                    success: function(response) {
+                        if (response.error) {
+                            $('#errorMsg').text('查询失败: ' + response.error);
+                        } else {
+                            $('#listed_date').val(response.listed_date || '');
+                            $('#order_data').val(response.order_data || 0);
+                            $('#sales_data').val(response.sales_data || 0);
+                            $('#inventory_data').val(response.inventory_data || 0);
+                            $('#stocked_orders').val(response.stocked_orders || 0);
+                            $('#later_sales').val(response.later_sales || 0);
+                            $('#avg_sales').val(response.avg_sales || 0);
+                            $('#out_quantity').val(response.out_quantity || 0);
+                        }
+                    },
+                    error: function(xhr) {
+                        $('#errorMsg').text('请求失败: ' + xhr.statusText);
+                    }
+                });
+            }
+        });
+
+        // 提交表单（严格验证）
+        $('#dataForm').submit(function(e) {
+            e.preventDefault();
+            $('#errorMsg').text('');
+
+            // 收集表单数据
+            const formData = {
+                submit_date: $('#submit_date').val(),
+                region: $('#region').val(),
+                style_code: $('#style_code').val(),
+                demand_qty: $('#demand_qty').val(),
+                estimated_cycle: $('#estimated_cycle').val(),
+                listed_date: $('#listed_date').val(),
+                order_data: $('#order_data').val(),
+                sales_data: $('#sales_data').val(),
+                inventory_data: $('#inventory_data').val(),
+                stocked_orders: $('#stocked_orders').val(),
+                later_sales: $('#later_sales').val(),
+                avg_sales: $('#avg_sales').val(),
+                out_quantity: $('#out_quantity').val()
+            };
+
+            // 前端验证
+            if (!formData.region || !formData.style_code || !formData.demand_qty || !formData.estimated_cycle) {
+                $('#errorMsg').text('带 * 的字段为必填项！');
+                return;
+            }
+
+            // 提交到后端
+            $.ajax({
+                url: '/submit',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(formData),
+                success: function(response) {
+                    if (response.status === 'success') {
+                        loadRecords();
+                        resetForm();
+                        alert('保存成功！');
+                    } else {
+                        $('#errorMsg').text('保存失败: ' + (response.message || '未知错误'));
+                    }
+                },
+                error: function(xhr) {
+                    $('#errorMsg').text('请求失败: ' + xhr.statusText);
+                }
+            });
+        });
+
+        // 加载历史记录
+		function loadRecords() {
+			$.ajax({
+				url: '/get_records',
+				success: function(data) {
+					let html = '';
+					data.forEach(record => {
+						html += `<tr>
+							<td>${record.submit_date || ''}</td>  // 直接显示格式化后的值
+							<td>${record.region || ''}</td>
+							<td>${record.style_code || ''}</td>
+							<td>${record.estimated_cycle || ''}</td>
+							<td>${record.demand_qty || ''}</td>
+							<td>${record.listed_date || ''}</td>  // 直接显示格式化后的值
+                            <td>${record.order_data || 0}</td>
+                            <td>${record.sales_data || 0}</td>
+                            <td>${record.inventory_data || 0}</td>
+                            <td>${record.avg_sales || 0}</td>
+                            <td>${record.stage || ''}</td>
+                            <td>${record.stocked_orders || 0}</td>
+                            <td>${record.out_quantity || 0}</td>
+                            <td>${record.later_sales || 0}</td>
+                            <td>${record.credit || 0}</td>
+                        </tr>`;
+                    });
+                    $('#recordsBody').html(html);
+                },
+                error: function(xhr) {
+                    console.error('加载记录失败:', xhr.statusText);
+                }
+            });
+        }
+
+        // 导出为Excel
+        function exportToExcel() {
+            const table = document.getElementById('recordsTable').getElementsByTagName('table')[0];
+            const ws = XLSX.utils.table_to_sheet(table);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "历史记录");
+            XLSX.writeFile(wb, '历史记录.xlsx');
+        }
+
+        // 重置表单
+        function resetForm() {
+            $('#dataForm')[0].reset();
+            $('#submit_date').val(new Date().toISOString().split('T')[0]);
+            $('#listed_date, #order_data, #sales_data, #inventory_data, #stocked_orders, #later_sales, #avg_sales, #out_quantity').val('');
+            $('#errorMsg').text('');
+        }
+
+        // 初始加载记录
+        loadRecords();
+        // 每小时自动刷新
+        setInterval(loadRecords, 3600000);
+    </script>
+</body>
+</html>
